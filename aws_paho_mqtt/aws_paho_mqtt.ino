@@ -37,6 +37,8 @@
 #include <LWiFiClient.h>
 #include <LGPRS.h>
 
+#define LED 13
+
 /**
    @brief Default MQTT HOST URL is pulled from the aws_iot_config.h
 */
@@ -63,10 +65,22 @@ QoSLevel qos = QOS_0;
 char mqtt_message[30];
 bool doingSetup = true;
 
+void led_on()
+{
+  digitalWrite(LED, HIGH);
+}
+
+void led_off()
+{
+  delay(100);
+  digitalWrite(LED, LOW);
+}
+
 int32_t MQTTcallbackHandler(MQTTCallbackParams params) {
 
-  Serial.println("Subscribe callback");
-  Serial.print("Topic Name is and message is ");
+  led_on();
+  Serial.println("\nSubscribe callback");
+  Serial.print("Topic + message: ");
   Serial.println(params.pTopicName);
   Serial.flush();
 
@@ -86,6 +100,7 @@ MQTTConnectParams connectParams;
 MQTTSubscribeParams subParams;
 MQTTMessageParams Msg;
 MQTTPublishParams Params;
+
 int subscribe_MQTT(int32_t (*callbackHandler)(MQTTCallbackParams), char * sTopic);
 
 // invoked in main thread context
@@ -118,13 +133,13 @@ boolean  mqtt_start(void* ctx)
   rc = NONE_ERROR;
   i = 0;
   infinitePublishFlag = true;
-
+  
   connectParams = MQTTConnectParamsDefault;
 
   connectParams.KeepAliveInterval_sec = 10;
   connectParams.isCleansession = true;
   connectParams.MQTTVersion = MQTT_3_1_1;
-  connectParams.pClientID = "CSDK-test-device";
+  connectParams.pClientID = (char *) AWS_IOT_MQTT_CLIENT_ID; // "CSDK-test-device";
   connectParams.pHostURL = HostAddress;
   connectParams.port = port;
   connectParams.isWillMsgPresent = false;
@@ -136,12 +151,13 @@ boolean  mqtt_start(void* ctx)
   connectParams.isSSLHostnameVerify = true;// ensure this is set to true for production
   connectParams.disconnectHandler = disconnectCallbackHandler;
 
+  Serial.println("Connecting...");
   rc = aws_iot_mqtt_connect(&connectParams);
   if (NONE_ERROR != rc) {
     Serial.println("Error in connecting...");
   }
 
-  rc = subscribe_MQTT(MQTTcallbackHandler, "mtktestTopic5");
+  rc = subscribe_MQTT(MQTTcallbackHandler, (char *) AWS_IOT_TOPIC_NAME);
   delay(1000);
 
   return true;
@@ -151,7 +167,7 @@ boolean bearer_open(void* ctx) {
   if (WIFI_USED)
     g_bearer_hdl = vm_bearer_open(VM_BEARER_DATA_ACCOUNT_TYPE_WLAN ,  NULL, bearer_callback);
   else
-    g_bearer_hdl = vm_bearer_open(VM_APN_USER_DEFINE ,  NULL, bearer_callback);
+    g_bearer_hdl = vm_bearer_open(VM_APN_USER_DEFINE , NULL, bearer_callback);
   if (g_bearer_hdl >= 0)
     return true;
   return false;
@@ -164,9 +180,9 @@ VMINT wifiResolveCallback(vm_soc_dns_result *pDNS)
   IN_ADDR addr;
   addr.S_un.s_addr = pDNS->address[0];
   CONNECT_IP_ADDRESS = inet_ntoa(addr);
-  //  Serial.println("wifiResolveCallback");
-  //  Serial.print("ip address is ");
-  //  Serial.println(CONNECT_IP_ADDRESS);
+  Serial.println("wifiResolveCallback");
+  Serial.print("AWS server ip address is ");
+  Serial.println(CONNECT_IP_ADDRESS);
   LTask.post_signal();
   return 0;
 }
@@ -177,9 +193,10 @@ boolean wifiResolveDomainName(void *userData)
   vm_soc_dns_result dns;
   IN_ADDR addr;
 
-  //  Serial.print("in wifiResolveDomainName, host name is ");
-  //  Serial.println(domainName);
-
+  Serial.print("in wifiResolveDomainName, host name is ");
+  Serial.println(domainName);
+  led_on();
+  
   VMINT resolveState;
   if (WIFI_USED) {
     resolveState = vm_soc_get_host_by_name(VM_TCP_APN_WIFI,
@@ -196,6 +213,8 @@ boolean wifiResolveDomainName(void *userData)
                                            &wifiResolveCallback);
     Serial.flush();
   }
+  
+  led_off();
 
   if (resolveState > 0)
   {
@@ -229,18 +248,26 @@ void setup()
 {
   LTask.begin();
 
+  pinMode(LED, OUTPUT);
+/* may block if no serial monitor?
+  led_on();
   Serial.begin(9600);
   while (!Serial)
     delay(100);
-
+  led_off();
+*/
   // keep retrying until connected to AP
   if (WIFI_USED) {
     LWiFi.begin();
-    Serial.print("  . Connecting to AP...");
+    Serial.print("Connecting to WiFi AP...");
     Serial.flush();
     while (0 == LWiFi.connect(WIFI_AP, LWiFiLoginInfo(WIFI_AUTH, WIFI_PASSWORD)))
     {
+      led_on();
       delay(1000);
+      Serial.print(" .");
+      Serial.flush();
+      led_off();
     }
   }
   else {
@@ -255,9 +282,8 @@ void setup()
   Serial.println("ok");
   i = 1;
 
-  LTask.remoteCall(&wifiResolveDomainName, (void*)HostAddress);
+  LTask.remoteCall(&wifiResolveDomainName, (void*) HostAddress);
   CONNECT_PORT = port;
-  //  CONNECT_IP_ADDRESS = "52.1.16.3";
 
   LTask.remoteCall(&bearer_open, NULL);
   LTask.remoteCall(&mqtt_start, NULL);
@@ -281,9 +307,7 @@ int subscribe_MQTT(int32_t (*callbackHandler)(MQTTCallbackParams), char * sTopic
   MQTTSubscribeParams subParams;
   subParams.mHandler = callbackHandler;
   subParams.pTopic = sTopic;
-  subParams.qos = qos;
-
-
+  led_on();
   Serial.print("Subscribing...");
   Serial.flush();
   rc = aws_iot_mqtt_subscribe(&subParams);
@@ -292,12 +316,16 @@ int subscribe_MQTT(int32_t (*callbackHandler)(MQTTCallbackParams), char * sTopic
   }
   Serial.println("Ok");
   Serial.flush();
+  led_off();
+
   return rc;
 }
 
 /* publish MQTTT function */
 int publish_MQTT(char * topic, char * message) {
   int rc = NONE_ERROR;
+
+  led_on();
 
   // Message setup
   MQTTMessageParams Msg;
@@ -321,6 +349,7 @@ int publish_MQTT(char * topic, char * message) {
   // Publish
   Serial.print("Publishing...");
   rc = aws_iot_mqtt_publish(&Params);
+  led_off();
 
   if (NONE_ERROR != rc) {
     Serial.print("error and rc is ");
@@ -333,13 +362,13 @@ int publish_MQTT(char * topic, char * message) {
   return rc;
 }
 
-/* natvieLoop which will use to do your main job in the loop */
+/* nativeLoop which will use to do your main job in the loop */
 boolean nativeLoop(void* user_data) {
 
   //    int *bb = (int*)user_data;
-  sprintf(mqtt_message, "%s : and read valie is %d ", "hello from SDK", i++);
+  sprintf(mqtt_message, "%s - read value: %d ", "Message from LINKIT board", i++);
 
-  Serial.println("publish_MQTT go");
-  rc = publish_MQTT("mtktestTopic5", mqtt_message);
+  Serial.println("publishing message...");
+  rc = publish_MQTT((char *) AWS_IOT_TOPIC_NAME, mqtt_message);
   Serial.flush();
 }
