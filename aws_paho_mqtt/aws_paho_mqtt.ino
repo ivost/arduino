@@ -58,11 +58,10 @@ char clientKeyName[] = AWS_IOT_PRIVATE_KEY_FILENAME;
 
 LWiFiClient c;
 bool infinitePublishFlag;
-//char cPayload[100];
 int32_t i;
 int rc;
 QoSLevel qos = QOS_0;
-char mqtt_message[30];
+char mqtt_message[500];
 bool doingSetup = true;
 
 void led_on()
@@ -133,7 +132,7 @@ boolean  mqtt_start(void* ctx)
   rc = NONE_ERROR;
   i = 0;
   infinitePublishFlag = true;
-  
+
   connectParams = MQTTConnectParamsDefault;
 
   connectParams.KeepAliveInterval_sec = 10;
@@ -196,7 +195,7 @@ boolean wifiResolveDomainName(void *userData)
   Serial.print("in wifiResolveDomainName, host name is ");
   Serial.println(domainName);
   led_on();
-  
+
   VMINT resolveState;
   if (WIFI_USED) {
     resolveState = vm_soc_get_host_by_name(VM_TCP_APN_WIFI,
@@ -213,7 +212,7 @@ boolean wifiResolveDomainName(void *userData)
                                            &wifiResolveCallback);
     Serial.flush();
   }
-  
+
   led_off();
 
   if (resolveState > 0)
@@ -249,13 +248,15 @@ void setup()
   LTask.begin();
 
   pinMode(LED, OUTPUT);
-/* may block if no serial monitor?
-  led_on();
-  Serial.begin(9600);
-  while (!Serial)
-    delay(100);
-  led_off();
-*/
+  
+  /* may block if no serial monitor?
+    led_on();
+    Serial.begin(9600);
+    while (!Serial)
+      delay(100);
+    led_off();
+  */
+  
   // keep retrying until connected to AP
   if (WIFI_USED) {
     LWiFi.begin();
@@ -343,7 +344,7 @@ int publish_MQTT(char * topic, char * message) {
   Params.MessageParams = Msg;
 
   rc = aws_iot_mqtt_yield(1000); //please don't try to put it lower than 1000, otherwise it may going to timeout easily and no response
-  Serial.println("-->sleep");
+  //Serial.println("-->sleep");
   delay(1000);
 
   // Publish
@@ -352,7 +353,7 @@ int publish_MQTT(char * topic, char * message) {
   led_off();
 
   if (NONE_ERROR != rc) {
-    Serial.print("error and rc is ");
+    Serial.print("publish error - rc is ");
     Serial.println(rc);
   }
   else {
@@ -364,11 +365,10 @@ int publish_MQTT(char * topic, char * message) {
 
 /* nativeLoop which will use to do your main job in the loop */
 boolean nativeLoop(void* user_data) {
-
   //    int *bb = (int*)user_data;
-  sprintf(mqtt_message, "%s - read value: %d ", "Message from LINKIT board", i++);
-
+  sprintf(mqtt_message, "{\"state\":{\"reported\":null,\"desired\":{\"index\":%d}}}", i++);
   Serial.println("publishing message...");
+  Serial.println(mqtt_message);
   rc = publish_MQTT((char *) AWS_IOT_TOPIC_NAME, mqtt_message);
   Serial.flush();
 }
